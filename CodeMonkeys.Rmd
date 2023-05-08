@@ -1,0 +1,146 @@
+---
+title: "Code Monkeys (LU Datathon-S23)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(caret)
+library(recipes)
+library(vip)
+```
+
+# Read in dataset
+```{r,message=FALSE}
+WH <- read_csv("World Happiness Report.csv")
+```
+
+```{r}
+# write your R code here
+
+summary(WH)
+sum(is.na(WH))
+```
+
+```{r}
+# Create new dataframe to be more usable for ML model
+WHtrim <- subset (WH, select = -c(1, 2, 3))
+
+colnames(WHtrim) <- c("Life_Ladder", "GDP", "Social_Support", "Life_Expectancy", "Freedom_To_Make_Life_Choices", "Generosity", "Corruption", "Positive_Affect", "Negative_Affect", "Confidence")
+
+summary(WHtrim)
+```
+
+```{r}
+# split the dataset
+set.seed(042523)   # set seed
+
+train_index <- createDataPartition(y = WHtrim$Life_Ladder, p = 0.8, list = FALSE)   # consider 70-30 split
+
+wh_train <- WHtrim[train_index,]   # training data
+
+wh_test <- WHtrim[-train_index,]   # test data
+```
+
+```{r}
+# set up the recipe
+
+library(recipes)
+
+wh_recipe <- recipe(formula = Life_Ladder ~ ., data = wh_train)   # sets up the type and role of variables
+
+wh_recipe$var_info
+```
+
+```{r}
+# investigate zv/nzv predictors 
+
+nearZeroVar(wh_train, saveMetrics = TRUE)   # NO zv/nzv predictors
+```
+
+```{r}
+# finally, after all preprocessing steps have been decided set up the overall blueprint
+
+blueprint <- wh_recipe %>%    
+  step_impute_mean(GDP, Social_Support, Life_Expectancy, Freedom_To_Make_Life_Choices, Generosity, Corruption, Positive_Affect, Negative_Affect, Confidence) %>%                                    # impute missing entries
+  step_center(all_numeric(), -all_outcomes()) %>%                      # center (subtract mean) all numeric predictors
+  step_scale(all_numeric(), -all_outcomes())                       # scale (divide by standard deviation) all numeric predictors
+
+
+prepare <- prep(blueprint, data = wh_train)    # estimate feature engineering parameters based on training data
+
+
+baked_train <- bake(prepare, new_data = wh_train)   # apply the blueprint to training data for building final/optimal model
+
+baked_test <- bake(prepare, new_data = wh_test)    # apply the blueprint to test data for future use
+
+summary(baked_train)
+```
+
+```{r, fig.align='center', fig.height=6, fig.width=8}
+# perform CV with KNN (tune K)
+
+set.seed(042523)
+
+cv_specs <- trainControl(method = "cv", number = 5)   # 5-fold CV (no repeats)
+
+k_grid <- expand.grid(k = seq(4, 6, by = 1))
+
+knn_fit <- train(blueprint,
+                  data = wh_train, 
+                  method = "knn",
+                  trControl = cv_specs,
+                  tuneGrid = k_grid,
+                  metric = "RMSE")
+
+knn_fit
+
+ggplot(knn_fit)
+```
+
+```{r}
+# perform CV with a linear regression model
+
+lm_fit <- train(blueprint,
+                  data = wh_train, 
+                  method = "lm",
+                  trControl = cv_specs,
+                  metric = "RMSE")
+
+lm_fit
+```
+
+```{r}
+# CV with logistic regression
+logistic_fit <- train(blueprint,
+                  data = wh_train, 
+                  method = "glm",
+                  trControl = cv_specs,
+                  metric = "RMSE")
+
+logistic_fit
+```
+
+```{r}
+# refit the final/optimal model using ALL modified training data, and obtain estimate of prediction error from modified test data
+
+# Now use baked_train instead of ames_train
+knn_fit$finalModel 
+
+final_preds <- predict(object = knn_fit, newdata = baked_test)   # obtain predictions on test data
+
+sqrt(mean((final_preds - baked_test$Life_Ladder)^2))    # calculate test set RMSE
+```
+
+```{r, fig.align='center', fig.height=6, fig.width=8}
+# variable importance
+
+library(vip)
+
+vip(object = knn_fit,         # CV object 
+    num_features = 10,   # maximum number of predictors to show importance for
+    method = "model")            # model-specific VI scores
+```
+
