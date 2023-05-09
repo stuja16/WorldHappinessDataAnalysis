@@ -26,9 +26,9 @@ sum(is.na(WH))
 
 ```{r}
 # Create new dataframe to be more usable for ML model
-WHtrim <- subset (WH, select = -c(1, 2, 3))
+colnames(WH) <- c("Country", "Region", "Year", "Life_Ladder", "GDP", "Social_Support", "Life_Expectancy", "Freedom_To_Make_Life_Choices", "Generosity", "Corruption", "Positive_Affect", "Negative_Affect", "Confidence")
 
-colnames(WHtrim) <- c("Life_Ladder", "GDP", "Social_Support", "Life_Expectancy", "Freedom_To_Make_Life_Choices", "Generosity", "Corruption", "Positive_Affect", "Negative_Affect", "Confidence")
+WHtrim <- subset (WH, select = -c(1, 2, 3, 13))
 
 summary(WHtrim)
 ```
@@ -64,7 +64,7 @@ nearZeroVar(wh_train, saveMetrics = TRUE)   # NO zv/nzv predictors
 # finally, after all preprocessing steps have been decided set up the overall blueprint
 
 blueprint <- wh_recipe %>%    
-  step_impute_mean(GDP, Social_Support, Life_Expectancy, Freedom_To_Make_Life_Choices, Generosity, Corruption, Positive_Affect, Negative_Affect, Confidence) %>%                                    # impute missing entries
+  step_impute_mean(GDP, Social_Support, Life_Expectancy, Freedom_To_Make_Life_Choices, Generosity, Corruption, Positive_Affect, Negative_Affect) %>%                      # impute missing entries
   step_center(all_numeric(), -all_outcomes()) %>%                      # center (subtract mean) all numeric predictors
   step_scale(all_numeric(), -all_outcomes())                       # scale (divide by standard deviation) all numeric predictors
 
@@ -86,7 +86,7 @@ set.seed(042523)
 
 cv_specs <- trainControl(method = "cv", number = 5)   # 5-fold CV (no repeats)
 
-k_grid <- expand.grid(k = seq(4, 6, by = 1))
+k_grid <- expand.grid(k = seq(1, 100, by = 1))
 
 knn_fit <- train(blueprint,
                   data = wh_train, 
@@ -142,5 +142,26 @@ library(vip)
 vip(object = knn_fit,         # CV object 
     num_features = 10,   # maximum number of predictors to show importance for
     method = "model")            # model-specific VI scores
+```
+
+```{r}
+WH2 <- WH %>%
+ group_by(Country) %>%
+ summarise(mean_ch = mean(Life_Ladder)) %>%
+ arrange(desc(mean_ch))
+
+WH2
+```
+
+```{r}
+WH2 %>%
+    head(25) %>%
+    arrange(desc(mean_ch)) %>%
+    ggplot(aes(x=reorder(Country, mean_ch), y=mean_ch, fill=mean_ch)) +
+    geom_col(show.legend = FALSE) +
+    labs(x="Country Name", y="Average Polled Happiness from 2005-2022", title="25 Happiest Countries") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 8))
 ```
 
